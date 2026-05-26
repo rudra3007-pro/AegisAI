@@ -1,7 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from typing import List, Optional
-
+from app.modules.compliance.nist_mapping import EU_TO_NIST_MAPPING
+from app.schemas.ai_system import NISTMapping
 from pydantic import BaseModel
 
 from app.core.database import get_db
@@ -313,13 +314,27 @@ def classify_risk(data: RiskClassificationRequest) -> RiskClassificationResponse
             "Monitor regulatory updates",
             "Document your AI governance practices",
         ]
-
+    nist_data = EU_TO_NIST_MAPPING.get(risk_level.value.upper())
+    nist_mapping = NISTMapping(**nist_data) if nist_data else None
+    
+    if triggered_prohibitions:
+        nist_data = EU_TO_NIST_MAPPING.get("UNACCEPTABLE")
+        return RiskClassificationResponse(
+            risk_level=risk_level,
+            confidence=0.99,
+            reasons=reasons,
+            requirements=requirements,
+            next_steps=[...],
+            nist_mapping=NISTMapping(**nist_data) if nist_data else None,
+        )
+    
     return RiskClassificationResponse(
         risk_level=risk_level,
         confidence=confidence,
         reasons=reasons,
         requirements=requirements,
         next_steps=next_steps,
+         nist_mapping=nist_mapping,
     )
 
 
@@ -331,7 +346,12 @@ def classify_ai_system(
     Classify an AI system's risk level based on EU AI Act criteria.
     This is a preliminary classification - full assessment requires more details.
     """
-    return classify_risk(data)
+    result = classify_risk(data)
+    nist_data = EU_TO_NIST_MAPPING.get(result.risk_level.value.upper())
+    if nist_data:
+        result.nist_mapping = NISTMapping(**nist_data)
+        
+    return result    
 
 
 @router.post("/classify/{system_id}", response_model=RiskClassificationResponse)
@@ -379,6 +399,9 @@ def classify_and_save(
 
     db.commit()
     db.refresh(system)
+    nist_data = EU_TO_NIST_MAPPING.get(result.risk_level.value.upper())
+    if nist_data:
+        result.nist_mapping = NISTMapping(**nist_data)
 
     return result
 
